@@ -1,0 +1,134 @@
+# =============================================================================
+# .gitignore — Flutter My Assets API
+# Buenas prácticas de seguridad y archivos generados/local
+# =============================================================================
+
+.cursor/
+
+# -----------------------------------------------------------------------------
+# Variables de entorno y secretos (NUNCA versionar)
+# -----------------------------------------------------------------------------
+.env
+.env.local
+.env.*.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
+*.env
+!.env.example
+
+# Certificados y claves privadas
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets/
+
+# -----------------------------------------------------------------------------
+# Node.js
+# -----------------------------------------------------------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.npm
+.yarn-integrity
+.pnp
+.pnp.js
+# package-lock.json se versiona para instalaciones reproducibles
+
+# -----------------------------------------------------------------------------
+# Build y compilación (TypeScript / backend)
+# -----------------------------------------------------------------------------
+dist/
+build/
+out/
+*.tsbuildinfo
+.next/
+.nuxt/
+
+# -----------------------------------------------------------------------------
+# Logs y archivos temporales
+# -----------------------------------------------------------------------------
+logs/
+*.log
+tmp/
+temp/
+.temp/
+.cache/
+
+# -----------------------------------------------------------------------------
+# Testing y cobertura
+# -----------------------------------------------------------------------------
+coverage/
+.nyc_output/
+*.lcov
+
+# -----------------------------------------------------------------------------
+# Sistema operativo
+# -----------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# -----------------------------------------------------------------------------
+# Prisma (opcional: descomenta si no quieres versionar migraciones locales)
+# -----------------------------------------------------------------------------
+# prisma/migrations/**/migration_lock.toml
+# Los .env con DATABASE_URL ya están ignorados arriba
+
+# -----------------------------------------------------------------------------
+# Flutter / Dart (si más adelante hay app en este repo)
+# -----------------------------------------------------------------------------
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+*.iml
+.idea/
+*.ipr
+*.iws
+.pub-cache/
+.pub/
+build/
+*.jks
+*.keystore
+key.properties
+android/.gradle/
+android/captures/
+android/local.properties
+android/**/GeneratedPluginRegistrant.java
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/App.framework
+ios/Flutter/Flutter.podspec
+
+# -----------------------------------------------------------------------------
+# Docker (archivos locales, no el Dockerfile)
+# -----------------------------------------------------------------------------
+docker-compose.override.yml
+.docker/
+
+# -----------------------------------------------------------------------------
+# Misc
+# -----------------------------------------------------------------------------
+*.pid
+*.seed
+*.pid.lock
+.grunt
+bower_components/
+*.swp
+*.swo
+*~
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
