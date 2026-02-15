@@ -14,7 +14,8 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "lint": "eslint src --ext .ts",
-    "lint:fix": "eslint src --ext .ts --fix"
+    "lint:fix": "eslint src --ext .ts --fix",
+    "mail:test": "ts-node src/scripts/send-test-email.ts"
   },
   "keywords": [
     "api",
@@ -41,6 +42,9 @@
     }
   ],
   "license": "UNLICENSED",
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
+  },
   "repository": {
     "type": "git",
     "url": ""

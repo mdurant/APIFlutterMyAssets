@@ -1,0 +1,200 @@
+// Prisma Schema - Flutter My Assets API
+// MySQL 8+ | Mauricio Durán - IntegralTech Services SpA
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// -----------------------------------------------------------------------------
+// Región y Comuna (Chile)
+// -----------------------------------------------------------------------------
+
+model Region {
+  id      String   @id @default(uuid())
+  nombre  String   @unique
+  comunas Comuna[]
+  users   User[]
+
+  @@map("regions")
+}
+
+model Comuna {
+  id       String   @id @default(uuid())
+  nombre   String
+  regionId String   @map("region_id")
+  region   Region   @relation(fields: [regionId], references: [id], onDelete: Cascade)
+  users    User[]
+
+  @@unique([nombre, regionId])
+  @@index([regionId])
+  @@map("comunas")
+}
+
+// -----------------------------------------------------------------------------
+// Usuarios y autenticación
+// -----------------------------------------------------------------------------
+
+model User {
+  id              String    @id @default(uuid())
+  email           String    @unique
+  passwordHash    String    @map("password_hash")
+  role            String    @default("USER") // USER | ADMIN
+  // Perfil ampliado
+  nombres         String    @map("nombres")
+  apellidos       String    @map("apellidos")
+  sexo            String    // HOMBRE | MUJER | OTRO
+  fechaNacimiento DateTime  @map("fecha_nacimiento") @db.Date
+  domicilio       String?   @map("domicilio")
+  regionId        String?   @map("region_id")
+  comunaId        String?   @map("comuna_id")
+  //
+  emailVerifiedAt DateTime? @map("email_verified_at")
+  termsAcceptedAt DateTime? @map("terms_accepted_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at") // soft delete
+
+  region   Region?   @relation(fields: [regionId], references: [id], onDelete: SetNull)
+  comuna   Comuna?   @relation(fields: [comunaId], references: [id], onDelete: SetNull)
+  refreshTokens         RefreshToken[]
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens   PasswordResetToken[]
+  auditLogs             AuditLog[]
+  properties            Property[]
+
+  @@index([regionId])
+  @@index([comunaId])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  tokenHash String   @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("refresh_tokens")
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  tokenHash String    @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("email_verification_tokens")
+}
+
+model OtpCode {
+  id        String   @id @default(uuid())
+  email     String
+  codeHash  String   @map("code_hash")
+  purpose   String   // LOGIN | EMAIL_VERIFY | PASSWORD_RESET
+  expiresAt DateTime @map("expires_at")
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([email])
+  @@index([email, purpose])
+  @@map("otp_codes")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  tokenHash String    @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("password_reset_tokens")
+}
+
+// -----------------------------------------------------------------------------
+// Propiedades (inmuebles)
+// -----------------------------------------------------------------------------
+
+model Property {
+  id          String    @id @default(uuid())
+  title       String
+  description String?   @db.Text
+  address     String?
+  city        String?
+  region      String?
+  price       Decimal?  @db.Decimal(14, 2)
+  currency    String    @default("CLP")
+  type        String?   // venta | arriendo
+  status      String    @default("DRAFT") // DRAFT | PUBLISHED | ARCHIVED
+  userId      String?   @map("user_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([status])
+  @@index([city])
+  @@map("properties")
+}
+
+// -----------------------------------------------------------------------------
+// Términos y condiciones (versiones)
+// -----------------------------------------------------------------------------
+
+model Term {
+  id        String   @id @default(uuid())
+  version   String   @unique // ej: "1.0"
+  title     String
+  content   String   @db.LongText
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("terms")
+}
+
+// -----------------------------------------------------------------------------
+// Auditoría (LOGIN, CREATE, UPDATE, DELETE, ACCEPT_TERMS)
+// -----------------------------------------------------------------------------
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  action     String   // LOGIN | CREATE | UPDATE | DELETE | ACCEPT_TERMS
+  entity     String?  // User | Property | Term
+  entityId   String?  @map("entity_id")
+  userId     String?  @map("user_id")
+  beforeJson Json?    @map("before_json")
+  afterJson  Json?    @map("after_json")
+  ip         String?
+  userAgent  String?  @map("user_agent") @db.VarChar(500)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([action])
+  @@index([entity])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

@@ -1,0 +1,176 @@
+{
+  "info": {
+    "name": "Flutter My Assets - Auth",
+    "description": "Endpoints de autenticación para pruebas. Base URL: {{baseUrl}}/auth",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000/api/v1" },
+    { "key": "accessToken", "value": "" },
+    { "key": "refreshToken", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "POST /register",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"nuevo@ejemplo.cl\",\n  \"password\": \"Password123!\",\n  \"nombres\": \"Juan Carlos\",\n  \"apellidos\": \"Pérez González\",\n  \"sexo\": \"HOMBRE\",\n  \"fechaNacimiento\": \"1990-05-15\",\n  \"domicilio\": \"Av. Providencia 1234\",\n  \"regionId\": null,\n  \"comunaId\": null,\n  \"acceptTerms\": true\n}"
+        },
+        "url": "{{baseUrl}}/auth/register",
+        "description": "Registra un nuevo usuario. Envía correo de verificación. regionId/comunaId opcionales (UUID de regions/comunas)."
+      }
+    },
+    {
+      "name": "POST /verify-email",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"token\": \"TOKEN_RECIBIDO_POR_CORREO\"\n}"
+        },
+        "url": "{{baseUrl}}/auth/verify-email",
+        "description": "Verifica el correo con el token enviado al registrarse. Reemplaza token por el recibido en el email."
+      }
+    },
+    {
+      "name": "POST /login",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "    const json = pm.response.json();",
+              "    if (json.data && json.data.accessToken) pm.collectionVariables.set('accessToken', json.data.accessToken);",
+              "    if (json.data && json.data.refreshToken) pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"admin@integraltech.cl\",\n  \"password\": \"Admin123!\"\n}"
+        },
+        "url": "{{baseUrl}}/auth/login",
+        "description": "Login con email y contraseña. Guarda accessToken y refreshToken en variables de la colección."
+      }
+    },
+    {
+      "name": "POST /login (solicitar OTP)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"demo@integraltech.cl\"\n}"
+        },
+        "url": "{{baseUrl}}/auth/login",
+        "description": "Sin password: envía un código OTP al correo. Luego usar POST /verify-otp con purpose LOGIN."
+      }
+    },
+    {
+      "name": "POST /verify-otp",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "    const json = pm.response.json();",
+              "    if (json.data && json.data.accessToken) pm.collectionVariables.set('accessToken', json.data.accessToken);",
+              "    if (json.data && json.data.refreshToken) pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"demo@integraltech.cl\",\n  \"code\": \"123456\",\n  \"purpose\": \"LOGIN\"\n}"
+        },
+        "url": "{{baseUrl}}/auth/verify-otp",
+        "description": "Verifica código OTP. purpose: LOGIN | EMAIL_VERIFY | PASSWORD_RESET. Para LOGIN devuelve accessToken y refreshToken."
+      }
+    },
+    {
+      "name": "POST /refresh",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "    const json = pm.response.json();",
+              "    if (json.data && json.data.accessToken) pm.collectionVariables.set('accessToken', json.data.accessToken);",
+              "    if (json.data && json.data.refreshToken) pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+        },
+        "url": "{{baseUrl}}/auth/refresh",
+        "description": "Obtiene nuevo accessToken y refreshToken. Rota el refresh token (el anterior se invalida)."
+      }
+    },
+    {
+      "name": "POST /logout",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+        },
+        "url": "{{baseUrl}}/auth/logout",
+        "description": "Invalida el refresh token (cierra sesión)."
+      }
+    },
+    {
+      "name": "POST /password-recovery",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"admin@integraltech.cl\"\n}"
+        },
+        "url": "{{baseUrl}}/auth/password-recovery",
+        "description": "Envía correo con enlace para restablecer contraseña. Siempre responde igual por seguridad."
+      }
+    },
+    {
+      "name": "POST /password-reset",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"token\": \"TOKEN_DEL_CORREO\",\n  \"newPassword\": \"NuevaPassword123!\"\n}"
+        },
+        "url": "{{baseUrl}}/auth/password-reset",
+        "description": "Restablece la contraseña con el token recibido por correo (enlace de password-recovery)."
+      }
+    }
+  ]
+}
