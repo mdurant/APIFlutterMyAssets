@@ -7,8 +7,14 @@ import rateLimit from 'express-rate-limit';
 import { config, isDev } from './config';
 import { prisma } from './database/prisma';
 import authRoutes from './modules/auth/auth.routes';
+import regionsRoutes from './routes/regions.routes';
+import { logger } from './common/logger';
+import { requestLogger } from './common/middleware/request-logger';
 
 const app = express();
+
+// Log de todas las peticiones HTTP (method, url, statusCode, duration, ip)
+app.use(requestLogger);
 
 // Seguridad y middleware base
 app.use(helmet());
@@ -52,8 +58,10 @@ app.get(`${config.apiPrefix}/`, (_req, res) => {
 app.get(`${config.apiPrefix}/ready`, async (_req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
+    logger.debug('Ready: base de datos OK');
     res.json({ success: true, data: { database: 'connected' } });
   } catch (e) {
+    logger.error({ err: e instanceof Error ? e.message : e }, 'Ready: base de datos no disponible');
     res.status(503).json({
       success: false,
       error: 'DB_UNAVAILABLE',
@@ -65,14 +73,18 @@ app.get(`${config.apiPrefix}/ready`, async (_req, res) => {
 // Auth
 app.use(`${config.apiPrefix}/auth`, authRoutes);
 
+// Catálogo: regiones y comunas (para selects en registro)
+app.use(config.apiPrefix, regionsRoutes);
+
 // 404
-app.use((_req, res) => {
+app.use((req, res) => {
+  logger.warn({ method: req.method, url: req.originalUrl ?? req.url }, 'Recurso no encontrado (404)');
   res.status(404).json({ success: false, error: 'NOT_FOUND', message: 'Recurso no encontrado' });
 });
 
 // Error handler global
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error(err);
+  logger.error({ err: err.message, stack: err.stack }, 'Unhandled error');
   res.status(500).json({
     success: false,
     error: 'INTERNAL_ERROR',
@@ -82,14 +94,17 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 
 async function start() {
   try {
+    logger.info('Conectando a base de datos...');
     await prisma.$connect();
-    app.listen(config.port, () => {
-      console.log(`[Flutter My Assets] API en http://localhost:${config.port}`);
-      console.log(`[Health] http://localhost:${config.port}/health`);
-      console.log(`[API]    http://localhost:${config.port}${config.apiPrefix}`);
+    logger.info('Base de datos conectada');
+    app.listen(config.port, '0.0.0.0', () => {
+      logger.info(
+        { port: config.port, apiPrefix: config.apiPrefix, host: '0.0.0.0' },
+        `API escuchando en http://localhost:${config.port} (y en la IP de tu red para emulador/dispositivo) | Health: /health | API: ${config.apiPrefix}`
+      );
     });
   } catch (e) {
-    console.error('No se pudo conectar a la BD o iniciar el servidor:', e);
+    logger.fatal({ err: e }, 'No se pudo conectar a la BD o iniciar el servidor');
     process.exit(1);
   }
 }

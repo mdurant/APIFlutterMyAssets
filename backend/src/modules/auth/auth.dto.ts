@@ -1,3 +1,4 @@
+import { Transform } from 'class-transformer';
 import {
   IsEmail,
   IsString,
@@ -10,6 +11,11 @@ import {
   IsDateString,
   Length,
 } from 'class-validator';
+
+/** Convierte string vacío en undefined para que @IsOptional/@IsUUID no fallen (registro mínimo Flutter). */
+function emptyStringToUndefined({ value }: { value: unknown }) {
+  return value === '' ? undefined : value;
+}
 
 export class RegisterDto {
   @IsEmail({}, { message: 'Email inválido' })
@@ -36,17 +42,20 @@ export class RegisterDto {
   @IsDateString({}, { message: 'Fecha de nacimiento inválida (ISO 8601)' })
   fechaNacimiento!: string;
 
+  @Transform(emptyStringToUndefined)
   @IsOptional()
   @IsString()
   @MaxLength(300)
   domicilio?: string;
 
+  @Transform(emptyStringToUndefined)
   @IsOptional()
-  @IsUUID()
+  @IsUUID(undefined, { message: 'regionId debe ser un UUID válido cuando se envía' })
   regionId?: string;
 
+  @Transform(emptyStringToUndefined)
   @IsOptional()
-  @IsUUID()
+  @IsUUID(undefined, { message: 'comunaId debe ser un UUID válido cuando se envía' })
   comunaId?: string;
 
   @IsBoolean()
@@ -63,10 +72,17 @@ export class LoginDto {
   @IsEmail()
   email!: string;
 
+  @Transform(emptyStringToUndefined)
   @IsOptional()
   @IsString()
-  @MinLength(1, { message: 'Contraseña requerida' })
+  @MinLength(1, { message: 'Contraseña requerida cuando se envía' })
   password?: string;
+}
+
+/** Solo email: para solicitar envío de OTP por correo (Flutter puede usar este o POST /login sin password). */
+export class SendLoginOtpDto {
+  @IsEmail()
+  email!: string;
 }
 
 export class VerifyOtpDto {

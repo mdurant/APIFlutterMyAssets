@@ -5,6 +5,7 @@ import {
   RegisterDto,
   VerifyEmailDto,
   LoginDto,
+  SendLoginOtpDto,
   VerifyOtpDto,
   RefreshDto,
   LogoutDto,
@@ -18,6 +19,8 @@ router.post('/register', validateBody(RegisterDto), asyncHandler(authController.
 router.get('/verify-email', asyncHandler(authController.verifyEmailGet));
 router.post('/verify-email', validateBody(VerifyEmailDto), asyncHandler(authController.verifyEmail));
 router.post('/login', validateBody(LoginDto), asyncHandler(authController.login));
+/** Endpoint explícito para solicitar OTP por correo (recomendado para Flutter). */
+router.post('/send-login-otp', validateBody(SendLoginOtpDto), asyncHandler(authController.sendLoginOtp));
 router.post('/verify-otp', validateBody(VerifyOtpDto), asyncHandler(authController.verifyOtp));
 router.post('/refresh', validateBody(RefreshDto), asyncHandler(authController.refresh));
 router.post('/logout', validateBody(LogoutDto), asyncHandler(authController.logout));

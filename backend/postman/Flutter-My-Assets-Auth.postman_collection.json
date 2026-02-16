@@ -78,6 +78,19 @@
       }
     },
     {
+      "name": "POST /send-login-otp",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"nuevo@ejemplo.cl\"\n}"
+        },
+        "url": "{{baseUrl}}/auth/send-login-otp",
+        "description": "Recomendado para Flutter: envía el código OTP al correo. Solo body con email. Revisar Mailtrap en desarrollo."
+      }
+    },
+    {
       "name": "POST /verify-otp",
       "event": [
         {

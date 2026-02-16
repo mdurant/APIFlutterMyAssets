@@ -4,6 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import { config } from '../../config';
 import { sendMail } from '../../common/mailer';
 import { hashToken, generateRandomToken, generateOtp } from '../../common/utils/hash';
+import { createChildLogger } from '../../common/logger';
 import type {
   RegisterDto,
   LoginDto,
@@ -13,6 +14,7 @@ import type {
 } from './auth.dto';
 
 const prisma = new PrismaClient();
+const log = createChildLogger({ module: 'auth' });
 
 const ACCESS_EXPIRES = config.jwt.accessExpiresIn;
 const REFRESH_EXPIRES = config.jwt.refreshExpiresIn;
@@ -38,28 +40,34 @@ function signRefreshToken(userId: string): string {
 }
 
 export async function register(dto: RegisterDto) {
+  log.info({ email: dto.email.toLowerCase(), operation: 'register' }, 'Registro: inicio');
   const existing = await prisma.user.findFirst({
     where: { email: dto.email.toLowerCase(), deletedAt: null },
   });
   if (existing) {
+    log.warn({ email: dto.email.toLowerCase(), error: 'EMAIL_IN_USE' }, 'Registro: correo ya registrado');
     return { error: 'EMAIL_IN_USE', message: 'El correo ya está registrado.' };
   }
   if (!dto.acceptTerms) {
+    log.warn({ email: dto.email.toLowerCase(), error: 'TERMS_REQUIRED' }, 'Registro: términos no aceptados');
     return { error: 'TERMS_REQUIRED', message: 'Debe aceptar los términos y condiciones.' };
   }
 
   const passwordHash = await argon2.hash(dto.password);
+  const domicilio = dto.domicilio?.trim();
+  const regionId = dto.regionId?.trim();
+  const comunaId = dto.comunaId?.trim();
   const user = await prisma.user.create({
     data: {
       email: dto.email.toLowerCase(),
       passwordHash,
-      nombres: dto.nombres,
-      apellidos: dto.apellidos,
+      nombres: dto.nombres.trim(),
+      apellidos: dto.apellidos.trim(),
       sexo: dto.sexo,
       fechaNacimiento: new Date(dto.fechaNacimiento),
-      domicilio: dto.domicilio ?? null,
-      regionId: dto.regionId ?? null,
-      comunaId: dto.comunaId ?? null,
+      domicilio: domicilio || null,
+      regionId: regionId || null,
+      comunaId: comunaId || null,
       termsAcceptedAt: new Date(),
       emailVerifiedAt: null,
     },
@@ -83,6 +91,7 @@ export async function register(dto: RegisterDto) {
     text: `Verifica tu correo: ${verifyUrl}`,
   });
 
+  log.info({ userId: user.id, email: user.email, operation: 'register' }, 'Registro: éxito, correo de verificación enviado');
   return {
     data: {
       userId: user.id,
@@ -93,18 +102,22 @@ export async function register(dto: RegisterDto) {
 }
 
 export async function verifyEmail(token: string) {
+  log.info({ operation: 'verifyEmail' }, 'Verificación de correo: inicio');
   const tokenHash = hashToken(token);
   const record = await prisma.emailVerificationToken.findFirst({
     where: { tokenHash },
     include: { user: true },
   });
   if (!record) {
+    log.warn({ operation: 'verifyEmail', error: 'INVALID_TOKEN' }, 'Verificación de correo: token inválido');
     return { error: 'INVALID_TOKEN', message: 'Token de verificación inválido.' };
   }
   if (record.usedAt) {
+    log.warn({ userId: record.userId, operation: 'verifyEmail', error: 'TOKEN_ALREADY_USED' }, 'Verificación de correo: enlace ya usado');
     return { error: 'TOKEN_ALREADY_USED', message: 'Este enlace ya fue utilizado.' };
   }
   if (new Date() > record.expiresAt) {
+    log.warn({ userId: record.userId, operation: 'verifyEmail', error: 'TOKEN_EXPIRED' }, 'Verificación de correo: token expirado');
     return { error: 'TOKEN_EXPIRED', message: 'El enlace de verificación ha expirado.' };
   }
 
@@ -119,23 +132,34 @@ export async function verifyEmail(token: string) {
     }),
   ]);
 
+  log.info({ userId: record.userId, email: record.user.email, operation: 'verifyEmail' }, 'Verificación de correo: éxito');
   return {
     data: { message: 'Correo verificado correctamente.' },
   };
 }
 
 export async function login(dto: LoginDto, ip?: string, userAgent?: string) {
+  const email = dto.email.toLowerCase();
+  log.info({ email, operation: 'login', hasPassword: !!dto.password }, 'Login: inicio');
   if (!dto.password) {
-    return sendLoginOtp(dto.email);
+    const result = await sendLoginOtp(email);
+    if (result.error) {
+      log.warn({ email, error: result.error, operation: 'login' }, 'Login (OTP): usuario no encontrado');
+    } else {
+      log.info({ email, operation: 'login', flow: 'otp_sent' }, 'Login: OTP enviado al correo');
+    }
+    return result;
   }
   const user = await prisma.user.findFirst({
-    where: { email: dto.email.toLowerCase(), deletedAt: null },
+    where: { email, deletedAt: null },
   });
   if (!user) {
+    log.warn({ email, error: 'INVALID_CREDENTIALS', operation: 'login' }, 'Login: usuario no encontrado');
     return { error: 'INVALID_CREDENTIALS', message: 'Correo o contraseña incorrectos.' };
   }
   const valid = await argon2.verify(user.passwordHash, dto.password);
   if (!valid) {
+    log.warn({ email, userId: user.id, error: 'INVALID_CREDENTIALS', operation: 'login' }, 'Login: contraseña incorrecta');
     return { error: 'INVALID_CREDENTIALS', message: 'Correo o contraseña incorrectos.' };
   }
 
@@ -161,6 +185,7 @@ export async function login(dto: LoginDto, ip?: string, userAgent?: string) {
     },
   });
 
+  log.info({ userId: user.id, email: user.email, role: user.role, operation: 'login' }, 'Login: éxito');
   return {
     data: {
       accessToken: signAccessToken(user.id, user.email, user.role),
@@ -178,12 +203,16 @@ export async function login(dto: LoginDto, ip?: string, userAgent?: string) {
 }
 
 export async function sendLoginOtp(email: string) {
+  const emailNorm = email.toLowerCase();
+  log.info({ flow: 'sendLoginOtp', email: emailNorm }, '[FLUJO] sendLoginOtp: buscando usuario');
   const user = await prisma.user.findFirst({
-    where: { email: email.toLowerCase(), deletedAt: null },
+    where: { email: emailNorm, deletedAt: null },
   });
   if (!user) {
+    log.warn({ flow: 'sendLoginOtp', email: emailNorm, error: 'USER_NOT_FOUND' }, '[FLUJO] sendLoginOtp: usuario no existe');
     return { error: 'USER_NOT_FOUND', message: 'No existe una cuenta con ese correo.' };
   }
+  log.info({ flow: 'sendLoginOtp', userId: user.id, email: user.email, nombres: user.nombres }, '[FLUJO] sendLoginOtp: usuario encontrado, generando OTP');
 
   const code = generateOtp(6);
   const codeHash = hashToken(code);
@@ -197,29 +226,44 @@ export async function sendLoginOtp(email: string) {
     },
   });
 
-  await sendMail({
-    to: user.email,
-    subject: 'Código de acceso - Flutter My Assets',
-    html: `<p>Hola ${user.nombres},</p><p>Tu código de acceso es: <strong>${code}</strong></p><p>Válido por 10 minutos. No lo compartas.</p>`,
-    text: `Tu código de acceso es: ${code}. Válido por 10 minutos.`,
-  });
+  try {
+    log.info({ flow: 'sendLoginOtp', email: user.email, userId: user.id, to: user.email }, '[FLUJO] sendLoginOtp: enviando correo a Mailtrap/usuario');
+    await sendMail({
+      to: user.email,
+      subject: 'Código de acceso - Flutter My Assets',
+      html: `<p>Hola ${user.nombres},</p><p>Tu código de acceso es: <strong>${code}</strong></p><p>Válido por 10 minutos. No lo compartas.</p>`,
+      text: `Tu código de acceso es: ${code}. Válido por 10 minutos.`,
+    });
+    log.info({ flow: 'sendLoginOtp', email: user.email, userId: user.id }, '[FLUJO] sendLoginOtp: correo enviado OK');
+  } catch (err) {
+    log.error({ flow: 'sendLoginOtp', err: err instanceof Error ? err.message : err, email: user.email, userId: user.id }, '[FLUJO] sendLoginOtp: ERROR al enviar correo');
+    return {
+      error: 'EMAIL_SEND_FAILED',
+      message: 'No se pudo enviar el correo con el código. Revisa la configuración del servidor o intenta más tarde.',
+    };
+  }
 
   return { data: { message: 'Código enviado al correo.' } };
 }
 
 export async function verifyOtp(dto: VerifyOtpDto, ip?: string, userAgent?: string) {
   const purpose = dto.purpose ?? 'LOGIN';
+  const email = dto.email.toLowerCase();
+  log.info({ flow: 'verifyOtp', email, purpose, codeLength: dto.code?.length }, '[FLUJO] verifyOtp: validando código');
   const record = await prisma.otpCode.findFirst({
-    where: { email: dto.email.toLowerCase(), purpose },
+    where: { email, purpose },
     orderBy: { createdAt: 'desc' },
   });
   if (!record) {
+    log.warn({ email, purpose, error: 'INVALID_OTP', operation: 'verifyOtp' }, 'Verificación OTP: código no encontrado o expirado');
     return { error: 'INVALID_OTP', message: 'Código incorrecto o expirado.' };
   }
   if (record.attempts >= OTP_MAX_ATTEMPTS) {
+    log.warn({ email, purpose, error: 'OTP_MAX_ATTEMPTS', operation: 'verifyOtp' }, 'Verificación OTP: demasiados intentos');
     return { error: 'OTP_MAX_ATTEMPTS', message: 'Demasiados intentos. Solicita un nuevo código.' };
   }
   if (new Date() > record.expiresAt) {
+    log.warn({ email, purpose, error: 'OTP_EXPIRED', operation: 'verifyOtp' }, 'Verificación OTP: código expirado');
     return { error: 'OTP_EXPIRED', message: 'El código ha expirado.' };
   }
 
@@ -229,6 +273,7 @@ export async function verifyOtp(dto: VerifyOtpDto, ip?: string, userAgent?: stri
       where: { id: record.id },
       data: { attempts: record.attempts + 1 },
     });
+    log.warn({ email, purpose, attempts: record.attempts + 1, operation: 'verifyOtp', error: 'INVALID_OTP' }, 'Verificación OTP: código incorrecto');
     return { error: 'INVALID_OTP', message: 'Código incorrecto.' };
   }
 
@@ -260,6 +305,7 @@ export async function verifyOtp(dto: VerifyOtpDto, ip?: string, userAgent?: stri
         userAgent: userAgent ?? null,
       },
     });
+    log.info({ flow: 'verifyOtp', userId: user.id, email: user.email, role: user.role, purpose: 'LOGIN' }, '[FLUJO] verifyOtp: código válido, generando tokens');
     return {
       data: {
         accessToken: signAccessToken(user.id, user.email, user.role),
@@ -286,25 +332,31 @@ export async function verifyOtp(dto: VerifyOtpDto, ip?: string, userAgent?: stri
         data: { emailVerifiedAt: new Date() },
       });
     }
+    log.info({ flow: 'verifyOtp', userId: user?.id, email: user?.email, purpose: 'EMAIL_VERIFY' }, '[FLUJO] verifyOtp: email verificado');
     return { data: { message: 'Correo verificado correctamente.' } };
   }
 
+  log.info({ email, purpose, operation: 'verifyOtp' }, 'Verificación OTP: éxito');
   return { data: { message: 'Código verificado correctamente.' } };
 }
 
 export async function refresh(dto: RefreshDto) {
+  log.info({ operation: 'refresh' }, 'Refresh token: inicio');
   const tokenHash = hashToken(dto.refreshToken);
   const record = await prisma.refreshToken.findFirst({
     where: { tokenHash },
     include: { user: true },
   });
   if (!record) {
+    log.warn({ operation: 'refresh', error: 'INVALID_REFRESH_TOKEN' }, 'Refresh: token inválido o expirado');
     return { error: 'INVALID_REFRESH_TOKEN', message: 'Token inválido o expirado.' };
   }
   if (record.revoked) {
+    log.warn({ userId: record.userId, operation: 'refresh', error: 'TOKEN_REVOKED' }, 'Refresh: token revocado');
     return { error: 'TOKEN_REVOKED', message: 'Sesión cerrada.' };
   }
   if (new Date() > record.expiresAt) {
+    log.warn({ userId: record.userId, operation: 'refresh', error: 'TOKEN_EXPIRED' }, 'Refresh: token expirado');
     return { error: 'TOKEN_EXPIRED', message: 'Token de refresco expirado.' };
   }
 
@@ -323,6 +375,7 @@ export async function refresh(dto: RefreshDto) {
     },
   });
 
+  log.info({ userId: record.userId, email: record.user.email, operation: 'refresh' }, 'Refresh token: éxito');
   return {
     data: {
       accessToken: signAccessToken(record.user.id, record.user.email, record.user.role),
@@ -333,6 +386,7 @@ export async function refresh(dto: RefreshDto) {
 }
 
 export async function logout(dto: RefreshDto) {
+  log.info({ operation: 'logout' }, 'Logout: inicio');
   const tokenHash = hashToken(dto.refreshToken);
   const record = await prisma.refreshToken.findFirst({ where: { tokenHash } });
   if (record) {
@@ -340,15 +394,21 @@ export async function logout(dto: RefreshDto) {
       where: { id: record.id },
       data: { revoked: true },
     });
+    log.info({ userId: record.userId, operation: 'logout' }, 'Logout: sesión revocada');
+  } else {
+    log.debug({ operation: 'logout' }, 'Logout: token no encontrado (ya revocado o inválido)');
   }
   return { data: { message: 'Sesión cerrada correctamente.' } };
 }
 
 export async function passwordRecovery(email: string) {
+  const emailNorm = email.toLowerCase();
+  log.info({ email: emailNorm, operation: 'passwordRecovery' }, 'Recuperación de contraseña: inicio');
   const user = await prisma.user.findFirst({
-    where: { email: email.toLowerCase(), deletedAt: null },
+    where: { email: emailNorm, deletedAt: null },
   });
   if (!user) {
+    log.info({ email: emailNorm, operation: 'passwordRecovery' }, 'Recuperación: correo no encontrado (respuesta genérica)');
     return { data: { message: 'Si el correo existe, recibirás un enlace para restablecer la contraseña.' } };
   }
 
@@ -370,22 +430,27 @@ export async function passwordRecovery(email: string) {
     text: `Restablecer contraseña: ${resetUrl}`,
   });
 
+  log.info({ userId: user.id, email: user.email, operation: 'passwordRecovery' }, 'Recuperación de contraseña: correo enviado');
   return { data: { message: 'Si el correo existe, recibirás un enlace para restablecer la contraseña.' } };
 }
 
 export async function passwordReset(dto: PasswordResetDto) {
+  log.info({ operation: 'passwordReset' }, 'Restablecer contraseña: inicio');
   const tokenHash = hashToken(dto.token);
   const record = await prisma.passwordResetToken.findFirst({
     where: { tokenHash },
     include: { user: true },
   });
   if (!record) {
+    log.warn({ operation: 'passwordReset', error: 'INVALID_TOKEN' }, 'Restablecer contraseña: token inválido o expirado');
     return { error: 'INVALID_TOKEN', message: 'Enlace inválido o expirado.' };
   }
   if (record.usedAt) {
+    log.warn({ userId: record.userId, operation: 'passwordReset', error: 'TOKEN_ALREADY_USED' }, 'Restablecer contraseña: enlace ya usado');
     return { error: 'TOKEN_ALREADY_USED', message: 'Este enlace ya fue utilizado.' };
   }
   if (new Date() > record.expiresAt) {
+    log.warn({ userId: record.userId, operation: 'passwordReset', error: 'TOKEN_EXPIRED' }, 'Restablecer contraseña: enlace expirado');
     return { error: 'TOKEN_EXPIRED', message: 'El enlace ha expirado.' };
   }
 
@@ -401,5 +466,6 @@ export async function passwordReset(dto: PasswordResetDto) {
     }),
   ]);
 
+  log.info({ userId: record.userId, email: record.user.email, operation: 'passwordReset' }, 'Restablecer contraseña: éxito');
   return { data: { message: 'Contraseña actualizada correctamente.' } };
 }
