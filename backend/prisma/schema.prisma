@@ -73,6 +73,7 @@ model User {
   conversationsAsRenter Conversation[] @relation("RenterConversations")
   messages              Message[]
   notifications         Notification[]
+  bookings              Booking[]
 
   @@index([regionId])
   @@index([comunaId])
@@ -149,9 +150,14 @@ model Property {
   address     String?
   city        String?
   region      String?
+  latitude    Decimal?  @map("latitude") @db.Decimal(10, 7)
+  longitude   Decimal?  @map("longitude") @db.Decimal(10, 7)
+  facilities  Json?     @map("facilities") // ["wifi","estacionamiento",...]
+  bedrooms    Int?      @map("bedrooms")
+  bathrooms   Int?      @map("bathrooms")
   price       Decimal?  @db.Decimal(14, 2)
   currency    String    @default("CLP")
-  type        String?   // venta | arriendo
+  type        String?   // venta | arriendo | rent | sale
   status      String    @default("DRAFT") // DRAFT | PUBLISHED | ARCHIVED
   userId      String?   @map("user_id")
   ratingAvg   Decimal?  @map("rating_avg") @db.Decimal(3, 2) // 0.00-5.00; actualizable por job/trigger
@@ -165,10 +171,12 @@ model Property {
   reviews           Review[]
   conversations     Conversation[]
   riskAssessments   RiskAssessment[]
+  bookings          Booking[]
 
   @@index([userId])
   @@index([status])
   @@index([city])
+  @@index([type])
   @@map("properties")
 }
 
@@ -195,8 +203,8 @@ model Term {
 
 model AuditLog {
   id         String   @id @default(uuid())
-  action     String   // LOGIN | CREATE | UPDATE | DELETE | ACCEPT_TERMS
-  entity     String?  // User | Property | Term
+  action     String   // LOGIN | CREATE | UPDATE | DELETE | ACCEPT_TERMS | PUBLISH_PROPERTY | ARCHIVE_PROPERTY
+  entity     String?  // User | Property | Term | Review | Message | Booking
   entityId   String?  @map("entity_id")
   userId     String?  @map("user_id")
   beforeJson Json?    @map("before_json")
@@ -369,4 +377,28 @@ model RiskAssessment {
 
   @@index([propertyId])
   @@map("risk_assessments")
+}
+
+// -----------------------------------------------------------------------------
+// Solicitud de arriendo/visita (booking sin pago en MVP)
+// -----------------------------------------------------------------------------
+
+model Booking {
+  id         String   @id @default(uuid())
+  propertyId String   @map("property_id")
+  userId     String   @map("user_id") // solicitante (arrendatario/interesado)
+  dateFrom   DateTime @map("date_from") @db.Date
+  dateTo     DateTime @map("date_to") @db.Date
+  note       String?  @db.Text
+  status     String   @default("PENDING") // PENDING | CONFIRMED | COMPLETED | CANCELLED
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId])
+  @@index([userId])
+  @@index([status])
+  @@map("bookings")
 }

@@ -199,6 +199,12 @@ En total: **18 tablas**. Relaciones principales: `users` ↔ `regions`/`comunas`
 - **General:** `GET /health`, `GET /api/v1/`, `GET /api/v1/ready`
 - **Auth:** `POST /api/v1/auth/register`, `GET|POST /api/v1/auth/verify-email`, `POST /api/v1/auth/login`, `POST /api/v1/auth/send-login-otp`, `POST /api/v1/auth/verify-otp`, `POST /api/v1/auth/refresh`, `POST /api/v1/auth/logout`, `POST /api/v1/auth/password-recovery`, `POST /api/v1/auth/password-reset`
 - **Catálogo:** `GET /api/v1/regions`, `GET /api/v1/comunas?regionId=uuid`
+- **Términos:** `GET /api/v1/terms/active`, `POST /api/v1/terms/accept` (body: `termId` o `version`)
+- **Propiedades:** CRUD, publish, archive, imágenes, listado con filtros, detalle con mapa/facilities/reviews/agente, reviews
+- **Favoritos:** `POST /api/v1/favorites/:propertyId`, `DELETE /api/v1/favorites/:propertyId`, `GET /api/v1/favorites`
+- **Conversaciones / mensajes:** `POST /api/v1/conversations`, `GET /api/v1/conversations`, `GET /api/v1/conversations/:id/messages`, `POST /api/v1/conversations/:id/messages`
+- **Notificaciones:** `GET /api/v1/notifications`, `POST /api/v1/notifications/:id/read`
+- **Bookings (solicitud arriendo/visita):** `POST /api/v1/bookings`, `GET /api/v1/bookings` (query: `status`)
 
 Formato de respuesta: éxito `{ success: true, data: ... }`, error `{ success: false, error: "CODIGO", message: "..." }`.  
 Detalle completo en **`docs/API-RUTAS.md`**.
@@ -247,7 +253,126 @@ El servidor escucha en **0.0.0.0** para acceso desde emulador/dispositivos en la
 
 ---
 
-## 10. Usuarios de prueba (seed)
+## 10. Lo aplicado, cómo probar e integración con Flutter
+
+Esta sección detalla **qué está implementado en la API**, **cómo probarlo** (Postman, orden sugerido) y **cómo debe integrar la app Flutter** (URLs, headers, flujo de términos, contrato por recurso).
+
+### 10.1 Regla de acceso post-login
+
+- Cualquier endpoint que requiera “usuario logueado de verdad” **exige términos aceptados**.
+- Si el usuario no ha aceptado términos (`users.terms_accepted_at` nulo), esas rutas responden **403** con `error: "TERMS_NOT_ACCEPTED"`.
+- Flutter debe: tras login/refresh, si recibe 403 TERMS_NOT_ACCEPTED → mostrar pantalla de términos → llamar a `POST /api/v1/terms/accept` → luego reintentar la acción o navegar al home.
+
+### 10.2 Qué se ha aplicado (resumen por módulo)
+
+| Módulo | Aplicado |
+|--------|----------|
+| **Términos** | `GET /api/v1/terms/active` (versión activa, público). `POST /api/v1/terms/accept` con body `{ termId?: string, version?: string }` (requiere `Authorization: Bearer <accessToken>`). Guarda en `user_terms_acceptances`, actualiza `users.terms_accepted_at`, escribe en `audit_logs` con acción `ACCEPT_TERMS` (ip, userAgent, etc.). |
+| **Propiedades** | POST (crear en DRAFT), PUT `/:id`, DELETE (soft delete), POST `/:id/publish`, POST `/:id/archive`, POST `/:id/images` (multipart), GET `/:id` (detalle con lat/lng, address, facilities, risk, agent/owner, imágenes, reviewsCount). GET listado con query: `q`, `regionId`, `comunaId`, `lat`, `lng`, `radiusKm`, `type`, `priceMin`, `priceMax`, `facilities[]`, `bedrooms`, `bathrooms`, `sort`, `page`, `limit`. Rutas protegidas usan auth + terms. |
+| **Reviews** | GET `/api/v1/properties/:id/reviews`, POST `/api/v1/properties/:id/reviews` (body: `rating`, `comment?`, `mediaUrl?`). Audit en creación. |
+| **Favoritos** | POST `/api/v1/favorites/:propertyId`, DELETE `/api/v1/favorites/:propertyId`, GET `/api/v1/favorites`. Todas con auth + terms. |
+| **Conversaciones / mensajes** | POST `/api/v1/conversations` (body: `{ propertyId }`), GET `/api/v1/conversations`, GET `/api/v1/conversations/:id/messages`, POST `/api/v1/conversations/:id/messages` (body: `body`, `type?`). Auth + terms. Audit en mensajes. |
+| **Notificaciones** | GET `/api/v1/notifications`, POST `/api/v1/notifications/:id/read`. Auth + terms. |
+| **Bookings** | POST `/api/v1/bookings` (body: `propertyId`, `dateFrom`, `dateTo`, `note?`). GET `/api/v1/bookings` con query `status` (upcoming/completed/cancelled). Auth + terms. Audit en creación. |
+| **Auditoría** | Para cada acción sensible se escribe en `audit_logs`: CREATE/UPDATE/DELETE (Property, Review, Message, Booking), ACCEPT_TERMS, PUBLISH_PROPERTY, ARCHIVE_PROPERTY. Se captura ip, userAgent, beforeJson, afterJson. |
+
+### 10.3 Contrato para Flutter (endpoints y payloads)
+
+Base URL recomendada en Flutter: variable de entorno, por ejemplo `https://tu-dominio.com` o `http://10.0.2.2:3000` (emulador Android) / `http://localhost:3000` (iOS sim). Prefijo: `/api/v1`.
+
+- **Header en rutas protegidas:** `Authorization: Bearer <accessToken>` (el que devuelve login o refresh).
+
+**Términos**
+
+- `GET /api/v1/terms/active` → `data`: `{ id, version, title, content, active, createdAt }`.
+- `POST /api/v1/terms/accept` → body: `{ "termId": "uuid" }` o `{ "version": "1.0" }`. Respuesta: `data` con el término aceptado y/o user.
+
+**Propiedades**
+
+- Crear: `POST /api/v1/properties` body según CreatePropertyDto (title obligatorio; address, city, region, latitude, longitude, facilities[], bedrooms, bathrooms, price, currency, type opcionales).
+- Actualizar: `PUT /api/v1/properties/:id` con los campos a cambiar (UpdatePropertyDto).
+- Listado/búsqueda: `GET /api/v1/properties?q=...&regionId=...&comunaId=...&lat=...&lng=...&radiusKm=...&type=rent|sale&priceMin=...&priceMax=...&facilities=...&bedrooms=...&bathrooms=...&sort=recommended|nearby|popular|price_asc|price_desc|risk_low&page=1&limit=20`.
+- Detalle: `GET /api/v1/properties/:id` → incluye coordenadas, address, facilities, risk (score/level), agente/owner (nombre, contacto), imágenes, reviewsCount.
+- Imágenes: `POST /api/v1/properties/:id/images` → `multipart/form-data` con campo `file` (imagen). La API devuelve la URL pública (ej. `/uploads/properties/...`).
+
+**Favoritos**
+
+- Añadir: `POST /api/v1/favorites/:propertyId` (sin body).
+- Quitar: `DELETE /api/v1/favorites/:propertyId`.
+- Listar: `GET /api/v1/favorites` → lista de favoritos con propiedad (no eliminadas).
+
+**Reviews**
+
+- Listar: `GET /api/v1/properties/:id/reviews`.
+- Crear: `POST /api/v1/properties/:id/reviews` body: `{ "rating": 1..5, "comment": "...", "mediaUrl": "..." }`.
+
+**Conversaciones y mensajes**
+
+- Crear o obtener conversación: `POST /api/v1/conversations` body: `{ "propertyId": "uuid" }`.
+- Listar conversaciones: `GET /api/v1/conversations`.
+- Mensajes: `GET /api/v1/conversations/:id/messages`, `POST /api/v1/conversations/:id/messages` body: `{ "body": "texto", "type": "text" }`.
+
+**Notificaciones**
+
+- Listar: `GET /api/v1/notifications`.
+- Marcar leída: `POST /api/v1/notifications/:id/read`.
+
+**Bookings (solicitud arriendo/visita)**
+
+- Crear: `POST /api/v1/bookings` body: `{ "propertyId": "uuid", "dateFrom": "ISO8601", "dateTo": "ISO8601", "note": "..." }`.
+- Listar: `GET /api/v1/bookings?status=upcoming|completed|cancelled` (tabs en UI).
+
+### 10.4 Cómo probar (Postman y orden sugerido)
+
+1. **Variables de entorno en Postman**  
+   - `baseUrl`: `http://localhost:3000` (o la IP de tu máquina si pruebas desde dispositivo/emulador).  
+   - `apiPrefix`: `/api/v1`.  
+   - `accessToken`: dejarlo vacío al inicio; se rellena tras login.
+
+2. **Orden sugerido**  
+   - Login: `POST {{baseUrl}}{{apiPrefix}}/auth/login` con `{ "email": "demo@integraltech.cl", "password": "Demo123!" }` → copiar `data.accessToken` a la variable `accessToken`.  
+   - Headers para rutas protegidas: `Authorization: Bearer {{accessToken}}`.  
+   - Términos: `GET {{baseUrl}}{{apiPrefix}}/terms/active` → luego `POST {{baseUrl}}{{apiPrefix}}/terms/accept` con `{ "version": "1.0" }` (o el `id` que devolvió active).  
+   - Propiedades: crear con POST, después GET listado con query, GET detalle por id, PUT, POST publish/archive, POST images (form-data con `file`).  
+   - Favoritos: POST/DELETE `favorites/:propertyId`, GET `favorites`.  
+   - Reviews: GET/POST `properties/:id/reviews`.  
+   - Conversaciones: POST `conversations` con `propertyId`, GET `conversations`, GET/POST `conversations/:id/messages`.  
+   - Notificaciones: GET `notifications`, POST `notifications/:id/read`.  
+   - Bookings: POST `bookings`, GET `bookings?status=upcoming`.
+
+3. **Errores esperados**  
+   - 401 sin token o token inválido.  
+   - 403 TERMS_NOT_ACCEPTED si no se ha llamado a `terms/accept` antes de usar rutas protegidas (favoritos, propiedades escritura, conversaciones, notificaciones, bookings).
+
+### 10.5 Integración en Flutter: qué hacer
+
+1. **Configurar base URL**  
+   Un solo base URL (ej. desde env o build flavor): `baseUrl + "/api/v1"` para todas las peticiones.
+
+2. **Guardar tokens**  
+   Tras login o refresh, guardar `accessToken` (y opcionalmente `refreshToken`) en almacenamiento seguro y enviar en cada petición protegida: `Authorization: Bearer <accessToken>`.
+
+3. **Manejar 403 TERMS_NOT_ACCEPTED**  
+   - Si la API devuelve 403 con `error: "TERMS_NOT_ACCEPTED"`: mostrar pantalla de términos (contenido de `GET /terms/active`).  
+   - Al aceptar, llamar `POST /terms/accept` con `termId` o `version`.  
+   - Después continuar con la acción que falló o redirigir al home.
+
+4. **Pantallas y endpoints**  
+   - **Home / Explore / Search / Filter:** `GET /properties` con query (q, regionId, comunaId, lat, lng, radiusKm, type, priceMin, priceMax, facilities, bedrooms, bathrooms, sort, page, limit).  
+   - **Detalle propiedad (mapa, facilities, reviews, agente):** `GET /properties/:id`; reviews: `GET /properties/:id/reviews`, enviar reseña: `POST /properties/:id/reviews`.  
+   - **Favoritos:** `GET /favorites` para la lista; añadir/quitar con POST/DELETE `favorites/:propertyId`.  
+   - **Mensajes:** listar `GET /conversations`; abrir chat `GET /conversations/:id/messages`, enviar `POST /conversations/:id/messages`; crear conversación `POST /conversations` con `propertyId`.  
+   - **Notificaciones:** `GET /notifications`; marcar leída `POST /notifications/:id/read`.  
+   - **Solicitud arriendo/visita:** `POST /bookings`; listar por estado `GET /bookings?status=...`.
+
+5. **Imágenes de propiedades**  
+   Subida: `multipart/form-data` con campo `file`. Las URLs devueltas son rutas relativas (ej. `/uploads/properties/...`); en Flutter concatenar con `baseUrl` para mostrar.
+
+Con esto la app Flutter puede reconocer qué endpoint usar en cada pantalla y cómo manejar auth y términos.
+
+---
+
+## 11. Usuarios de prueba (seed)
 
 Tras `npx prisma db seed`:
 
@@ -260,16 +385,20 @@ Datos ficticios con nombres y direcciones chilenas (región/comuna asociadas).
 
 ---
 
-## 11. Resumen de lo que está funcionando
+## 12. Resumen de lo que está funcionando
 
 - Servidor Express con TypeScript, CORS, Helmet, rate limit, compresión.
 - Conexión a MySQL vía Prisma y migraciones aplicadas.
 - Registro de usuarios (completo y mínimo para Flutter), verificación de correo (GET y POST), login con contraseña y login por OTP (send-login-otp + verify-otp), refresh, logout, recuperación y restablecimiento de contraseña.
 - Catálogo de regiones y comunas (Chile) para selects en app.
+- **Términos y condiciones:** versión activa (GET), aceptación (POST) con trazabilidad en `user_terms_acceptances` y auditoría; regla de acceso: rutas post-login exigen términos aceptados (403 si no).
+- **Propiedades:** CRUD (DRAFT), publish, archive, subida de imágenes, listado con filtros (q, región, comuna, lat/lng/radio, tipo, precio, facilities, habitaciones, orden), detalle con mapa, facilities, risk, agente/owner y reviews.
+- **Favoritos, conversaciones/mensajes, notificaciones, bookings (solicitud arriendo/visita):** endpoints listados en §6 y §10; todos los protegidos con auth + terms.
+- **Auditoría:** escritura en `audit_logs` para CREATE/UPDATE/DELETE (Property, Review, Message, Booking), ACCEPT_TERMS, PUBLISH_PROPERTY, ARCHIVE_PROPERTY (ip, userAgent, before/after JSON).
 - Envío de correos (Mailtrap en desarrollo): verificación, OTP, recuperación de contraseña y script de prueba.
 - Logging: peticiones HTTP y flujo auth con datos seguros.
 - Validación de entrada (DTOs), manejo global de errores y respuestas JSON unificadas.
-- Documentación de API, flujo OTP y uso de regiones/comunas en Flutter, más colección Postman.
+- Documentación de API, flujo OTP y uso de regiones/comunas en Flutter, más colección Postman; README-2 con contrato para Flutter, cómo probar e integrar (§10).
 
 ---
 

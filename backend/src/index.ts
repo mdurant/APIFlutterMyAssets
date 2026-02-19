@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import path from 'path';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -8,6 +9,12 @@ import { config, isDev } from './config';
 import { prisma } from './database/prisma';
 import authRoutes from './modules/auth/auth.routes';
 import regionsRoutes from './routes/regions.routes';
+import termsRoutes from './modules/terms/terms.routes';
+import propertiesRoutes from './modules/properties/properties.routes';
+import favoritesRoutes from './modules/favorites/favorites.routes';
+import conversationsRoutes from './modules/conversations/conversations.routes';
+import notificationsRoutes from './modules/notifications/notifications.routes';
+import bookingsRoutes from './modules/bookings/bookings.routes';
 import { logger } from './common/logger';
 import { requestLogger } from './common/middleware/request-logger';
 
@@ -70,11 +77,26 @@ app.get(`${config.apiPrefix}/ready`, async (_req, res) => {
   }
 });
 
+// Archivos subidos (imágenes de propiedades)
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+
 // Auth
 app.use(`${config.apiPrefix}/auth`, authRoutes);
 
 // Catálogo: regiones y comunas (para selects en registro)
 app.use(config.apiPrefix, regionsRoutes);
+
+// Términos y condiciones
+app.use(`${config.apiPrefix}/terms`, termsRoutes);
+
+// Propiedades (CRUD, búsqueda, imágenes, reviews)
+app.use(`${config.apiPrefix}/properties`, propertiesRoutes);
+
+// Favoritos, conversaciones, notificaciones, bookings (requieren auth + terms)
+app.use(`${config.apiPrefix}/favorites`, favoritesRoutes);
+app.use(`${config.apiPrefix}/conversations`, conversationsRoutes);
+app.use(`${config.apiPrefix}/notifications`, notificationsRoutes);
+app.use(`${config.apiPrefix}/bookings`, bookingsRoutes);
 
 // 404
 app.use((req, res) => {
