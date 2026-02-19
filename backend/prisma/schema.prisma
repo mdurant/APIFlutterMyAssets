@@ -52,6 +52,7 @@ model User {
   domicilio       String?   @map("domicilio")
   regionId        String?   @map("region_id")
   comunaId        String?   @map("comuna_id")
+  avatarUrl       String?   @map("avatar_url") // URL de foto de perfil (ej. /uploads/users/xxx.jpg)
   //
   emailVerifiedAt DateTime? @map("email_verified_at")
   termsAcceptedAt DateTime? @map("terms_accepted_at")

@@ -125,3 +125,38 @@ export class PasswordResetDto {
   @MaxLength(100)
   newPassword!: string;
 }
+
+/** Actualización de perfil (GET /me devuelve; PATCH /me actualiza). */
+export class UpdateProfileDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(100)
+  nombres?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(100)
+  apellidos?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  domicilio?: string;
+
+  @Transform(emptyStringToUndefined)
+  @IsOptional()
+  @IsUUID()
+  regionId?: string;
+
+  @Transform(emptyStringToUndefined)
+  @IsOptional()
+  @IsUUID()
+  comunaId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  avatarUrl?: string;
+}

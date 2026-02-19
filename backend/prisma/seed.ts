@@ -150,6 +150,23 @@ async function main() {
   });
   console.log('  ✓ Usuario Demo: demo@integraltech.cl (password: Demo123!)');
 
+  // 4. Términos y condiciones (versión activa para GET /terms/active y POST /terms/accept)
+  await prisma.term.upsert({
+    where: { version: '1.0' },
+    create: {
+      version: '1.0',
+      title: 'Términos y Condiciones de Uso',
+      content: `Términos y condiciones de uso de la aplicación Flutter My Assets.
+
+Al utilizar este servicio usted acepta estos términos. El uso de la plataforma implica la aceptación de la versión vigente publicada en la aplicación.
+
+Para consultas: contacto@integraltech.cl`,
+      active: true,
+    },
+    update: { active: true, title: 'Términos y Condiciones de Uso' },
+  });
+  console.log('  ✓ Términos y condiciones: versión 1.0 (activa)');
+
   console.log('✅ Seed completado.');
 }
 

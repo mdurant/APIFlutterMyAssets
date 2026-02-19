@@ -197,7 +197,7 @@ En total: **18 tablas**. Relaciones principales: `users` ↔ `regions`/`comunas`
 ## 6. API — Resumen de rutas
 
 - **General:** `GET /health`, `GET /api/v1/`, `GET /api/v1/ready`
-- **Auth:** `POST /api/v1/auth/register`, `GET|POST /api/v1/auth/verify-email`, `POST /api/v1/auth/login`, `POST /api/v1/auth/send-login-otp`, `POST /api/v1/auth/verify-otp`, `POST /api/v1/auth/refresh`, `POST /api/v1/auth/logout`, `POST /api/v1/auth/password-recovery`, `POST /api/v1/auth/password-reset`
+- **Auth:** `GET /api/v1/auth/me` (perfil usuario logueado), `PATCH /api/v1/auth/me` (actualizar perfil/avatar), `POST /api/v1/auth/register`, `GET|POST /api/v1/auth/verify-email`, `POST /api/v1/auth/login`, `POST /api/v1/auth/send-login-otp`, `POST /api/v1/auth/verify-otp`, `POST /api/v1/auth/refresh`, `POST /api/v1/auth/logout`, `POST /api/v1/auth/password-recovery`, `POST /api/v1/auth/password-reset`
 - **Catálogo:** `GET /api/v1/regions`, `GET /api/v1/comunas?regionId=uuid`
 - **Términos:** `GET /api/v1/terms/active`, `POST /api/v1/terms/accept` (body: `termId` o `version`)
 - **Propiedades:** CRUD, publish, archive, imágenes, listado con filtros, detalle con mapa/facilities/reviews/agente, reviews
@@ -267,6 +267,7 @@ Esta sección detalla **qué está implementado en la API**, **cómo probarlo** 
 
 | Módulo | Aplicado |
 |--------|----------|
+| **Perfil (Cuenta)** | `GET /api/v1/auth/me` (usuario logueado; devuelve id, email, nombres, apellidos, sexo, fechaNacimiento, domicilio, regionId, comunaId, **avatarUrl**, regionName, comunaName, etc.). `PATCH /api/v1/auth/me` (actualizar nombres, apellidos, domicilio, regionId, comunaId, **avatarUrl**). Requiere `Authorization: Bearer <accessToken>`. No exige términos aceptados (solo auth). |
 | **Términos** | `GET /api/v1/terms/active` (versión activa, público). `POST /api/v1/terms/accept` con body `{ termId?: string, version?: string }` (requiere `Authorization: Bearer <accessToken>`). Guarda en `user_terms_acceptances`, actualiza `users.terms_accepted_at`, escribe en `audit_logs` con acción `ACCEPT_TERMS` (ip, userAgent, etc.). |
 | **Propiedades** | POST (crear en DRAFT), PUT `/:id`, DELETE (soft delete), POST `/:id/publish`, POST `/:id/archive`, POST `/:id/images` (multipart), GET `/:id` (detalle con lat/lng, address, facilities, risk, agent/owner, imágenes, reviewsCount). GET listado con query: `q`, `regionId`, `comunaId`, `lat`, `lng`, `radiusKm`, `type`, `priceMin`, `priceMax`, `facilities[]`, `bedrooms`, `bathrooms`, `sort`, `page`, `limit`. Rutas protegidas usan auth + terms. |
 | **Reviews** | GET `/api/v1/properties/:id/reviews`, POST `/api/v1/properties/:id/reviews` (body: `rating`, `comment?`, `mediaUrl?`). Audit en creación. |
@@ -281,6 +282,13 @@ Esta sección detalla **qué está implementado en la API**, **cómo probarlo** 
 Base URL recomendada en Flutter: variable de entorno, por ejemplo `https://tu-dominio.com` o `http://10.0.2.2:3000` (emulador Android) / `http://localhost:3000` (iOS sim). Prefijo: `/api/v1`.
 
 - **Header en rutas protegidas:** `Authorization: Bearer <accessToken>` (el que devuelve login o refresh).
+
+**Perfil (pantalla Cuenta / avatar)**
+
+- `GET /api/v1/auth/me` → perfil del usuario logueado. Respuesta `data`: `{ id, email, role, nombres, apellidos, sexo, fechaNacimiento, domicilio, regionId, comunaId, avatarUrl, emailVerifiedAt, termsAcceptedAt, createdAt, regionName, comunaName }`. Usar para mostrar nombre, email y avatar en la pantalla Cuenta.
+- **Subir foto de perfil (evitar 404):** `POST /api/v1/auth/me/avatar` — **URL exacta** que debe usar Flutter. Método POST, header `Authorization: Bearer <accessToken>`, body `multipart/form-data` con **un solo campo llamado `file`** (la imagen). Límite 3 MB; formatos jpeg, png, gif, webp. Respuesta: perfil actualizado con `data.avatarUrl` (ej. `/uploads/users/xxx.jpg`). Si la app llama a otra ruta (ej. `/profile/avatar`, `/user/avatar`) el servidor responde **404**.
+- `PATCH /api/v1/auth/me` → actualizar perfil. Body opcional: `{ nombres?, apellidos?, domicilio?, regionId?, comunaId?, avatarUrl? }`. La respuesta es el perfil actualizado (mismo formato que GET /me).
+- **Avatar:** si `data.avatarUrl` viene con valor (ej. `/uploads/users/abc.jpg`), en Flutter concatenar con la base URL para mostrar la imagen: `baseUrl + data.avatarUrl`. Si es `null`, mostrar placeholder (iniciales o icono).
 
 **Términos**
 
@@ -347,7 +355,8 @@ Base URL recomendada en Flutter: variable de entorno, por ejemplo `https://tu-do
 ### 10.5 Integración en Flutter: qué hacer
 
 1. **Configurar base URL**  
-   Un solo base URL (ej. desde env o build flavor): `baseUrl + "/api/v1"` para todas las peticiones.
+   Un solo base URL (ej. desde env o build flavor): `baseUrl + "/api/v1"` para todas las peticiones.  
+   - **Flutter Web:** usar exactamente `http://localhost:3000` (con las dos barras `//`). Si usas `http:localhost:3000` (sin `//`) el navegador no conecta. El backend en desarrollo acepta CORS desde cualquier `http://localhost:*` y `http://127.0.0.1:*`, y debe estar en marcha (`npm run dev` en `backend/`) para que la versión web pueda hacer login.
 
 2. **Guardar tokens**  
    Tras login o refresh, guardar `accessToken` (y opcionalmente `refreshToken`) en almacenamiento seguro y enviar en cada petición protegida: `Authorization: Bearer <accessToken>`.
@@ -358,6 +367,7 @@ Base URL recomendada en Flutter: variable de entorno, por ejemplo `https://tu-do
    - Después continuar con la acción que falló o redirigir al home.
 
 4. **Pantallas y endpoints**  
+   - **Cuenta (perfil):** cargar con `GET /auth/me` (header `Authorization: Bearer <token>`). Mostrar `data.nombres`, `data.apellidos`, `data.email`; si `data.avatarUrl` existe, imagen con `baseUrl + data.avatarUrl`, si no, placeholder. Actualizar con `PATCH /auth/me` (p. ej. `avatarUrl` tras subir imagen).  
    - **Home / Explore / Search / Filter:** `GET /properties` con query (q, regionId, comunaId, lat, lng, radiusKm, type, priceMin, priceMax, facilities, bedrooms, bathrooms, sort, page, limit).  
    - **Detalle propiedad (mapa, facilities, reviews, agente):** `GET /properties/:id`; reviews: `GET /properties/:id/reviews`, enviar reseña: `POST /properties/:id/reviews`.  
    - **Favoritos:** `GET /favorites` para la lista; añadir/quitar con POST/DELETE `favorites/:propertyId`.  

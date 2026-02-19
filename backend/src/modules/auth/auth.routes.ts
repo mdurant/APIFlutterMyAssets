@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { validateBody, asyncHandler } from '../../common/validate';
+import { requireAuth } from '../../common/middleware/auth';
+import { uploadUserAvatar } from '../../common/upload';
 import * as authController from './auth.controller';
 import {
   RegisterDto,
@@ -11,9 +13,33 @@ import {
   LogoutDto,
   PasswordRecoveryDto,
   PasswordResetDto,
+  UpdateProfileDto,
 } from './auth.dto';
 
 const router = Router();
+
+/** Perfil del usuario logueado (pantalla Cuenta). Requiere Authorization: Bearer <accessToken>. */
+router.get('/me', requireAuth as any, asyncHandler(authController.getMe));
+/** Actualizar perfil (nombres, apellidos, domicilio, región, comuna, avatarUrl). */
+router.patch('/me', requireAuth as any, validateBody(UpdateProfileDto), asyncHandler(authController.updateMe));
+/** Subir avatar (imagen de perfil). multipart/form-data con campo "file". Máx 3MB; jpeg, png, gif, webp. */
+router.post(
+  '/me/avatar',
+  requireAuth as any,
+  (req: any, res: any, next: any) => {
+    uploadUserAvatar(req, res, (err: unknown) => {
+      if (err) {
+        return res.status(400).json({
+          success: false,
+          error: 'UPLOAD_ERROR',
+          message: err instanceof Error ? err.message : 'Error al subir la imagen.',
+        });
+      }
+      next();
+    });
+  },
+  asyncHandler(authController.uploadAvatar)
+);
 
 router.post('/register', validateBody(RegisterDto), asyncHandler(authController.register));
 router.get('/verify-email', asyncHandler(authController.verifyEmailGet));

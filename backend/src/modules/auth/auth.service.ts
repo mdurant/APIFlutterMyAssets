@@ -469,3 +469,69 @@ export async function passwordReset(dto: PasswordResetDto) {
   log.info({ userId: record.userId, email: record.user.email, operation: 'passwordReset' }, 'Restablecer contraseña: éxito');
   return { data: { message: 'Contraseña actualizada correctamente.' } };
 }
+
+/** Perfil del usuario actual (para pantalla Cuenta). Incluye región/comuna por nombre; sin password. */
+export async function getMe(userId: string) {
+  const user = await prisma.user.findFirst({
+    where: { id: userId, deletedAt: null },
+    select: {
+      id: true,
+      email: true,
+      role: true,
+      nombres: true,
+      apellidos: true,
+      sexo: true,
+      fechaNacimiento: true,
+      domicilio: true,
+      regionId: true,
+      comunaId: true,
+      avatarUrl: true,
+      emailVerifiedAt: true,
+      termsAcceptedAt: true,
+      createdAt: true,
+      region: { select: { id: true, nombre: true } },
+      comuna: { select: { id: true, nombre: true } },
+    },
+  });
+  if (!user) return { error: 'USER_NOT_FOUND', message: 'Usuario no encontrado.' };
+  const { region, comuna, ...rest } = user;
+  return {
+    data: {
+      ...rest,
+      fechaNacimiento: rest.fechaNacimiento.toISOString().slice(0, 10),
+      regionName: region?.nombre ?? null,
+      comunaName: comuna?.nombre ?? null,
+    },
+  };
+}
+
+/** Actualizar perfil (nombres, apellidos, domicilio, regionId, comunaId, avatarUrl). */
+export async function updateProfile(
+  userId: string,
+  data: {
+    nombres?: string;
+    apellidos?: string;
+    domicilio?: string;
+    regionId?: string;
+    comunaId?: string;
+    avatarUrl?: string;
+  }
+) {
+  const user = await prisma.user.findFirst({
+    where: { id: userId, deletedAt: null },
+    select: { id: true },
+  });
+  if (!user) return { error: 'USER_NOT_FOUND', message: 'Usuario no encontrado.' };
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      ...(data.nombres !== undefined && { nombres: data.nombres.trim() }),
+      ...(data.apellidos !== undefined && { apellidos: data.apellidos.trim() }),
+      ...(data.domicilio !== undefined && { domicilio: data.domicilio?.trim() || null }),
+      ...(data.regionId !== undefined && { regionId: data.regionId?.trim() || null }),
+      ...(data.comunaId !== undefined && { comunaId: data.comunaId?.trim() || null }),
+      ...(data.avatarUrl !== undefined && { avatarUrl: data.avatarUrl?.trim() || null }),
+    },
+  });
+  return getMe(userId);
+}

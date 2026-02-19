@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import * as authService from './auth.service';
 import { createChildLogger } from '../../common/logger';
+import { userAvatarUrl } from '../../common/upload';
 import type {
   RegisterDto,
   VerifyEmailDto,
@@ -11,6 +12,7 @@ import type {
   LogoutDto,
   PasswordRecoveryDto,
   PasswordResetDto,
+  UpdateProfileDto,
 } from './auth.dto';
 
 const log = createChildLogger({ module: 'auth', layer: 'controller' });
@@ -179,5 +181,44 @@ export async function passwordReset(req: Request, res: Response) {
     return res.status(400).json({ success: false, error: result.error, message: result.message });
   }
   log.info({ flow: 'password-reset', status: 200 }, '[FLUJO] password-reset: contraseña actualizada');
+  return res.json({ success: true, ...result });
+}
+
+/** GET /auth/me — perfil del usuario logueado (para pantalla Cuenta). */
+export async function getMe(req: Request, res: Response) {
+  const userId = req.user!.userId;
+  const result = await authService.getMe(userId);
+  if (result.error) {
+    return res.status(404).json({ success: false, error: result.error, message: result.message });
+  }
+  return res.json({ success: true, ...result });
+}
+
+/** PATCH /auth/me — actualizar perfil (nombres, apellidos, domicilio, regionId, comunaId, avatarUrl). */
+export async function updateMe(req: Request, res: Response) {
+  const userId = req.user!.userId;
+  const dto = getDto<UpdateProfileDto>(req);
+  const result = await authService.updateProfile(userId, dto);
+  if (result.error) {
+    return res.status(404).json({ success: false, error: result.error, message: result.message });
+  }
+  return res.json({ success: true, ...result });
+}
+
+/** POST /auth/me/avatar — subir imagen de perfil (multipart/form-data, campo "file"). Requiere requireAuth antes del multer. */
+export async function uploadAvatar(req: Request, res: Response) {
+  if (!req.file) {
+    return res.status(400).json({
+      success: false,
+      error: 'NO_FILE',
+      message: 'Debe enviar una imagen en el campo "file" (multipart/form-data).',
+    });
+  }
+  const userId = req.user!.userId;
+  const avatarUrl = userAvatarUrl(req.file.filename);
+  const result = await authService.updateProfile(userId, { avatarUrl });
+  if (result.error) {
+    return res.status(404).json({ success: false, error: result.error, message: result.message });
+  }
   return res.json({ success: true, ...result });
 }

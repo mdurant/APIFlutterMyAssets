@@ -25,10 +25,21 @@ app.use(requestLogger);
 
 // Seguridad y middleware base
 app.use(helmet());
+// CORS: en desarrollo permitir cualquier localhost/127.0.0.1 (Flutter web, simuladores).
 app.use(
   cors({
-    origin: isDev ? true : process.env.CORS_ORIGIN ?? '*',
+    origin: isDev
+      ? (origin, cb) => {
+          const allowed =
+            !origin ||
+            /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin) ||
+            /^https?:\/\/\[::1\](:\d+)?$/i.test(origin);
+          cb(null, allowed ? (origin || true) : false);
+        }
+      : process.env.CORS_ORIGIN ?? '*',
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
   })
 );
 app.use(compression());
