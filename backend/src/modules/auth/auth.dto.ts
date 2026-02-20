@@ -160,3 +160,16 @@ export class UpdateProfileDto {
   @MaxLength(500)
   avatarUrl?: string;
 }
+
+/** Solicitar cambio de correo (envía token al nuevo email). */
+export class RequestEmailChangeDto {
+  @IsEmail({}, { message: 'Nuevo correo inválido' })
+  newEmail!: string;
+}
+
+/** Verificar nuevo correo (mismo formato que verify-email). */
+export class VerifyNewEmailDto {
+  @IsString()
+  @MinLength(1, { message: 'Token requerido' })
+  token!: string;
+}

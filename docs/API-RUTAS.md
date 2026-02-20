@@ -36,6 +36,12 @@ Prefijo de API: `/api/v1`
 | **POST** | `/api/v1/auth/logout` | Cerrar sesión (revocar refresh token). | Body: `{ "refreshToken": "..." }` |
 | **POST** | `/api/v1/auth/password-recovery` | Solicitar restablecimiento de contraseña. Envía correo con enlace. | Body: `{ "email": "..." }` |
 | **POST** | `/api/v1/auth/password-reset` | Restablecer contraseña con el token del correo. | Body: `token`, `newPassword` |
+| **GET** | `/api/v1/auth/me` | **Perfil del usuario logueado** (pantalla Cuenta / Configuración). Requiere `Authorization: Bearer <accessToken>`. Respuesta: `data` con id, email, role, nombres, apellidos, sexo, fechaNacimiento, domicilio, regionId, comunaId, avatarUrl, regionName, comunaName, etc. **El perfil está disponible en el servidor**; Flutter no debe mostrar "perfil no disponible". | Header: `Authorization` |
+| **PATCH** | `/api/v1/auth/me` | Actualizar datos personales (nombres, apellidos, domicilio, regionId, comunaId, avatarUrl). No incluye cambio de email (ver siguiente fila). | Body: `nombres?`, `apellidos?`, `domicilio?`, `regionId?`, `comunaId?`, `avatarUrl?` |
+| **POST** | `/api/v1/auth/me/avatar` | Subir foto de perfil. `multipart/form-data`, campo **`file`**. Máx 3 MB. | Header: `Authorization` |
+| **POST** | `/api/v1/auth/me/request-email-change` | Solicitar cambio de correo. Envía token al **nuevo** email. Tras verificar (verify-new-email), el usuario debe cerrar sesión y loguearse con el nuevo correo. | Body: `{ "newEmail": "..." }`. Requiere auth. Errores: SAME_EMAIL, EMAIL_IN_USE, EMAIL_SEND_FAILED. |
+| **GET** | `/api/v1/auth/verify-new-email` | Verificar cambio de correo (enlace del email). | Query: `token` |
+| **POST** | `/api/v1/auth/verify-new-email` | Verificar cambio de correo desde la app. Tras éxito, el backend revoca todos los refresh tokens; Flutter debe cerrar sesión y pedir login con el nuevo correo. | Body: `{ "token": "..." }`. Respuesta: `data.newEmail`, `data.message`. |
 
 ---
 

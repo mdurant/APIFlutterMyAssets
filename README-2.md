@@ -197,7 +197,7 @@ En total: **18 tablas**. Relaciones principales: `users` ↔ `regions`/`comunas`
 ## 6. API — Resumen de rutas
 
 - **General:** `GET /health`, `GET /api/v1/`, `GET /api/v1/ready`
-- **Auth:** `GET /api/v1/auth/me` (perfil usuario logueado), `PATCH /api/v1/auth/me` (actualizar perfil/avatar), `POST /api/v1/auth/register`, `GET|POST /api/v1/auth/verify-email`, `POST /api/v1/auth/login`, `POST /api/v1/auth/send-login-otp`, `POST /api/v1/auth/verify-otp`, `POST /api/v1/auth/refresh`, `POST /api/v1/auth/logout`, `POST /api/v1/auth/password-recovery`, `POST /api/v1/auth/password-reset`
+- **Auth:** `GET /api/v1/auth/me` (perfil), `PATCH /api/v1/auth/me` (actualizar datos personales), `POST /api/v1/auth/me/avatar` (subir foto), `POST /api/v1/auth/me/request-email-change` (solicitar cambio de correo), `GET|POST /api/v1/auth/verify-new-email` (verificar nuevo correo; tras éxito cerrar sesión y re-login). Registro, login, OTP, refresh, logout, recuperación/restablecimiento de contraseña.
 - **Catálogo:** `GET /api/v1/regions`, `GET /api/v1/comunas?regionId=uuid`
 - **Términos:** `GET /api/v1/terms/active`, `POST /api/v1/terms/accept` (body: `termId` o `version`)
 - **Propiedades:** CRUD, publish, archive, imágenes, listado con filtros, detalle con mapa/facilities/reviews/agente, reviews
@@ -267,7 +267,7 @@ Esta sección detalla **qué está implementado en la API**, **cómo probarlo** 
 
 | Módulo | Aplicado |
 |--------|----------|
-| **Perfil (Cuenta)** | `GET /api/v1/auth/me` (usuario logueado; devuelve id, email, nombres, apellidos, sexo, fechaNacimiento, domicilio, regionId, comunaId, **avatarUrl**, regionName, comunaName, etc.). `PATCH /api/v1/auth/me` (actualizar nombres, apellidos, domicilio, regionId, comunaId, **avatarUrl**). Requiere `Authorization: Bearer <accessToken>`. No exige términos aceptados (solo auth). |
+| **Perfil (Cuenta / Configuración)** | **El perfil está disponible en el servidor.** `GET /api/v1/auth/me` (datos completos del usuario). `PATCH /api/v1/auth/me` (actualizar nombres, apellidos, domicilio, regionId, comunaId, avatarUrl). `POST /api/v1/auth/me/avatar` (subir foto de perfil). `POST /api/v1/auth/me/request-email-change` (body `newEmail`; envía token al nuevo correo). `GET|POST /api/v1/auth/verify-new-email` (verificar token; actualiza email y revoca sesiones → Flutter debe cerrar sesión y pedir login con el nuevo correo). Requiere auth (no exige términos aceptados). |
 | **Términos** | `GET /api/v1/terms/active` (versión activa, público). `POST /api/v1/terms/accept` con body `{ termId?: string, version?: string }` (requiere `Authorization: Bearer <accessToken>`). Guarda en `user_terms_acceptances`, actualiza `users.terms_accepted_at`, escribe en `audit_logs` con acción `ACCEPT_TERMS` (ip, userAgent, etc.). |
 | **Propiedades** | POST (crear en DRAFT), PUT `/:id`, DELETE (soft delete), POST `/:id/publish`, POST `/:id/archive`, POST `/:id/images` (multipart), GET `/:id` (detalle con lat/lng, address, facilities, risk, agent/owner, imágenes, reviewsCount). GET listado con query: `q`, `regionId`, `comunaId`, `lat`, `lng`, `radiusKm`, `type`, `priceMin`, `priceMax`, `facilities[]`, `bedrooms`, `bathrooms`, `sort`, `page`, `limit`. Rutas protegidas usan auth + terms. |
 | **Reviews** | GET `/api/v1/properties/:id/reviews`, POST `/api/v1/properties/:id/reviews` (body: `rating`, `comment?`, `mediaUrl?`). Audit en creación. |
@@ -283,12 +283,19 @@ Base URL recomendada en Flutter: variable de entorno, por ejemplo `https://tu-do
 
 - **Header en rutas protegidas:** `Authorization: Bearer <accessToken>` (el que devuelve login o refresh).
 
-**Perfil (pantalla Cuenta / avatar)**
+**Perfil (pantalla Cuenta / Configuración) — disponible en el servidor**
 
-- `GET /api/v1/auth/me` → perfil del usuario logueado. Respuesta `data`: `{ id, email, role, nombres, apellidos, sexo, fechaNacimiento, domicilio, regionId, comunaId, avatarUrl, emailVerifiedAt, termsAcceptedAt, createdAt, regionName, comunaName }`. Usar para mostrar nombre, email y avatar en la pantalla Cuenta.
-- **Subir foto de perfil (evitar 404):** `POST /api/v1/auth/me/avatar` — **URL exacta** que debe usar Flutter. Método POST, header `Authorization: Bearer <accessToken>`, body `multipart/form-data` con **un solo campo llamado `file`** (la imagen). Límite 3 MB; formatos jpeg, png, gif, webp. Respuesta: perfil actualizado con `data.avatarUrl` (ej. `/uploads/users/xxx.jpg`). Si la app llama a otra ruta (ej. `/profile/avatar`, `/user/avatar`) el servidor responde **404**.
-- `PATCH /api/v1/auth/me` → actualizar perfil. Body opcional: `{ nombres?, apellidos?, domicilio?, regionId?, comunaId?, avatarUrl? }`. La respuesta es el perfil actualizado (mismo formato que GET /me).
-- **Avatar:** si `data.avatarUrl` viene con valor (ej. `/uploads/users/abc.jpg`), en Flutter concatenar con la base URL para mostrar la imagen: `baseUrl + data.avatarUrl`. Si es `null`, mostrar placeholder (iniciales o icono).
+- **El perfil está disponible:** usar `GET /api/v1/auth/me` para cargar datos en Cuenta y en Configuración. No mostrar el mensaje "El perfil aún no está disponible en el servidor"; el backend sí expone el perfil.
+- `GET /api/v1/auth/me` → perfil del usuario logueado. Respuesta `data`: `{ id, email, role, nombres, apellidos, sexo, fechaNacimiento, domicilio, regionId, comunaId, avatarUrl, emailVerifiedAt, termsAcceptedAt, createdAt, regionName, comunaName }`. Usar para pantalla Cuenta y para prellenar el formulario de Configuración (editar datos personales).
+- `PATCH /api/v1/auth/me` → actualizar datos personales (nombres, apellidos, domicilio, región, comuna, avatarUrl). Body opcional con los campos a cambiar. La respuesta es el perfil actualizado. **No incluye cambio de email**; para cambiar el correo usar el flujo de solicitud + verificación (ver más abajo).
+- **Subir foto de perfil:** `POST /api/v1/auth/me/avatar` — body `multipart/form-data` con campo **`file`**. Límite 3 MB; jpeg, png, gif, webp. Respuesta: perfil actualizado con `data.avatarUrl`.
+- **Avatar:** si `data.avatarUrl` tiene valor, en Flutter mostrar `baseUrl + data.avatarUrl`; si no, placeholder (iniciales o icono).
+
+**Cambio de correo (desde Configuración)**
+
+- **Solicitar:** `POST /api/v1/auth/me/request-email-change` con body `{ "newEmail": "nuevo@correo.com" }` (requiere auth). El backend envía un correo al **nuevo** email con un enlace de verificación (mismo proceso que validar email).
+- **Verificar:** el usuario abre el enlace (GET `/api/v1/auth/verify-new-email?token=...`) o la app puede llamar `POST /api/v1/auth/verify-new-email` con body `{ "token": "..." }`. El backend actualiza el email del usuario y **revoca todos los refresh tokens** (cierra todas las sesiones).
+- **Flutter:** tras verificación exitosa, mostrar mensaje de éxito, **cerrar sesión** y redirigir a login para que el usuario inicie sesión con el **nuevo** correo.
 
 **Términos**
 

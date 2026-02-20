@@ -64,6 +64,7 @@ model User {
   comuna   Comuna?   @relation(fields: [comunaId], references: [id], onDelete: SetNull)
   refreshTokens         RefreshToken[]
   emailVerificationTokens EmailVerificationToken[]
+  emailChangeTokens     EmailChangeToken[]
   passwordResetTokens   PasswordResetToken[]
   auditLogs             AuditLog[]
   properties            Property[]
@@ -109,6 +110,22 @@ model EmailVerificationToken {
   @@index([userId])
   @@index([tokenHash])
   @@map("email_verification_tokens")
+}
+
+model EmailChangeToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  newEmail  String    @map("new_email")
+  tokenHash String    @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("email_change_tokens")
 }
 
 model OtpCode {

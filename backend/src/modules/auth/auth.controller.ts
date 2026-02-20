@@ -13,6 +13,8 @@ import type {
   PasswordRecoveryDto,
   PasswordResetDto,
   UpdateProfileDto,
+  RequestEmailChangeDto,
+  VerifyNewEmailDto,
 } from './auth.dto';
 
 const log = createChildLogger({ module: 'auth', layer: 'controller' });
@@ -219,6 +221,43 @@ export async function uploadAvatar(req: Request, res: Response) {
   const result = await authService.updateProfile(userId, { avatarUrl });
   if (result.error) {
     return res.status(404).json({ success: false, error: result.error, message: result.message });
+  }
+  return res.json({ success: true, ...result });
+}
+
+/** POST /auth/me/request-email-change — solicitar cambio de correo (envía token al nuevo email). */
+export async function requestEmailChange(req: Request, res: Response) {
+  const userId = req.user!.userId;
+  const { newEmail } = getDto<RequestEmailChangeDto>(req);
+  const result = await authService.requestEmailChange(userId, newEmail);
+  if (result.error) {
+    const status =
+      result.error === 'EMAIL_IN_USE' || result.error === 'SAME_EMAIL' ? 400 : result.error === 'EMAIL_SEND_FAILED' ? 503 : 404;
+    return res.status(status).json({ success: false, error: result.error, message: result.message });
+  }
+  return res.json({ success: true, ...result });
+}
+
+/** POST /auth/verify-new-email — verificar token de cambio de correo (desde body). */
+export async function verifyNewEmail(req: Request, res: Response) {
+  const { token } = getDto<VerifyNewEmailDto>(req);
+  const result = await authService.verifyNewEmail(token);
+  if (result.error) {
+    const status = result.error === 'EMAIL_IN_USE' ? 400 : 400;
+    return res.status(status).json({ success: false, error: result.error, message: result.message });
+  }
+  return res.json({ success: true, ...result });
+}
+
+/** GET /auth/verify-new-email?token=... — verificar desde enlace del correo. */
+export async function verifyNewEmailGet(req: Request, res: Response) {
+  const token = typeof req.query.token === 'string' ? req.query.token : '';
+  if (!token) {
+    return res.status(400).json({ success: false, error: 'MISSING_TOKEN', message: 'Falta el token en la URL.' });
+  }
+  const result = await authService.verifyNewEmail(token);
+  if (result.error) {
+    return res.status(400).json({ success: false, error: result.error, message: result.message });
   }
   return res.json({ success: true, ...result });
 }

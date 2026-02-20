@@ -14,6 +14,8 @@ import {
   PasswordRecoveryDto,
   PasswordResetDto,
   UpdateProfileDto,
+  RequestEmailChangeDto,
+  VerifyNewEmailDto,
 } from './auth.dto';
 
 const router = Router();
@@ -40,10 +42,19 @@ router.post(
   },
   asyncHandler(authController.uploadAvatar)
 );
+/** Solicitar cambio de correo: envía token al nuevo email. Tras verificar, el usuario debe cerrar sesión y loguearse con el nuevo correo. */
+router.post(
+  '/me/request-email-change',
+  requireAuth as any,
+  validateBody(RequestEmailChangeDto),
+  asyncHandler(authController.requestEmailChange)
+);
 
 router.post('/register', validateBody(RegisterDto), asyncHandler(authController.register));
 router.get('/verify-email', asyncHandler(authController.verifyEmailGet));
 router.post('/verify-email', validateBody(VerifyEmailDto), asyncHandler(authController.verifyEmail));
+router.get('/verify-new-email', asyncHandler(authController.verifyNewEmailGet));
+router.post('/verify-new-email', validateBody(VerifyNewEmailDto), asyncHandler(authController.verifyNewEmail));
 router.post('/login', validateBody(LoginDto), asyncHandler(authController.login));
 /** Endpoint explícito para solicitar OTP por correo (recomendado para Flutter). */
 router.post('/send-login-otp', validateBody(SendLoginOtpDto), asyncHandler(authController.sendLoginOtp));

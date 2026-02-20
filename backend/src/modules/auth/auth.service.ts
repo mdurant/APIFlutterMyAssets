@@ -1,7 +1,7 @@
 import * as argon2 from 'argon2';
 import jwt from 'jsonwebtoken';
-import { PrismaClient } from '@prisma/client';
 import { config } from '../../config';
+import { prisma } from '../../database/prisma';
 import { sendMail } from '../../common/mailer';
 import { hashToken, generateRandomToken, generateOtp } from '../../common/utils/hash';
 import { createChildLogger } from '../../common/logger';
@@ -12,13 +12,12 @@ import type {
   RefreshDto,
   PasswordResetDto,
 } from './auth.dto';
-
-const prisma = new PrismaClient();
 const log = createChildLogger({ module: 'auth' });
 
 const ACCESS_EXPIRES = config.jwt.accessExpiresIn;
 const REFRESH_EXPIRES = config.jwt.refreshExpiresIn;
 const EMAIL_VERIFY_EXPIRES_MS = 24 * 60 * 60 * 1000; // 24h
+const EMAIL_CHANGE_EXPIRES_MS = 24 * 60 * 60 * 1000; // 24h
 const PASSWORD_RESET_EXPIRES_MS = 60 * 60 * 1000; // 1h
 const OTP_EXPIRES_MS = 10 * 60 * 1000; // 10 min
 const OTP_MAX_ATTEMPTS = 5;
@@ -135,6 +134,108 @@ export async function verifyEmail(token: string) {
   log.info({ userId: record.userId, email: record.user.email, operation: 'verifyEmail' }, 'Verificación de correo: éxito');
   return {
     data: { message: 'Correo verificado correctamente.' },
+  };
+}
+
+/** Solicitar cambio de correo: envía token al nuevo email. Tras verificar, el usuario debe cerrar sesión y loguearse con el nuevo correo. */
+export async function requestEmailChange(userId: string, newEmail: string) {
+  const newEmailNorm = newEmail.toLowerCase().trim();
+  log.info({ userId, newEmail: newEmailNorm, operation: 'requestEmailChange' }, 'Solicitud cambio de correo: inicio');
+
+  const user = await prisma.user.findFirst({
+    where: { id: userId, deletedAt: null },
+    select: { id: true, email: true, nombres: true },
+  });
+  if (!user) {
+    return { error: 'USER_NOT_FOUND', message: 'Usuario no encontrado.' };
+  }
+  if (user.email.toLowerCase() === newEmailNorm) {
+    return { error: 'SAME_EMAIL', message: 'El nuevo correo es igual al actual.' };
+  }
+  const existing = await prisma.user.findFirst({
+    where: { email: newEmailNorm, deletedAt: null },
+  });
+  if (existing) {
+    return { error: 'EMAIL_IN_USE', message: 'Ese correo ya está en uso por otra cuenta.' };
+  }
+
+  const rawToken = generateRandomToken(32);
+  const tokenHash = hashToken(rawToken);
+  await prisma.emailChangeToken.create({
+    data: {
+      userId,
+      newEmail: newEmailNorm,
+      tokenHash,
+      expiresAt: new Date(Date.now() + EMAIL_CHANGE_EXPIRES_MS),
+    },
+  });
+
+  const verifyUrl = `${process.env.APP_URL ?? 'http://localhost:3000'}/api/v1/auth/verify-new-email?token=${rawToken}`;
+  try {
+    await sendMail({
+      to: newEmailNorm,
+      subject: 'Confirma tu nuevo correo - Flutter My Assets',
+      html: `<p>Hola,</p><p>Has solicitado cambiar el correo de tu cuenta a este email.</p><p>Haz clic en el siguiente enlace para confirmar:</p><p><a href="${verifyUrl}">${verifyUrl}</a></p><p>Tras confirmar, deberás cerrar sesión e iniciar sesión de nuevo con tu nuevo correo.</p><p>El enlace expira en 24 horas.</p>`,
+      text: `Confirma tu nuevo correo: ${verifyUrl}. Tras confirmar, cierra sesión e inicia sesión con el nuevo correo.`,
+    });
+  } catch (err) {
+    log.error({ err: err instanceof Error ? err.message : err, userId, newEmail: newEmailNorm }, 'requestEmailChange: error al enviar correo');
+    return { error: 'EMAIL_SEND_FAILED', message: 'No se pudo enviar el correo. Intenta más tarde.' };
+  }
+
+  log.info({ userId, newEmail: newEmailNorm, operation: 'requestEmailChange' }, 'Correo de cambio enviado al nuevo email');
+  return {
+    data: { message: 'Revisa tu nuevo correo y haz clic en el enlace. Tras confirmar, cierra sesión e inicia sesión con el nuevo correo.' },
+  };
+}
+
+/** Verificar token de cambio de correo: actualiza user.email, revoca todos los refresh tokens (obligar a re-login). */
+export async function verifyNewEmail(token: string) {
+  log.info({ operation: 'verifyNewEmail', tokenLength: token?.length }, 'Verificación nuevo correo: inicio');
+  const tokenHash = hashToken(token);
+  const record = await prisma.emailChangeToken.findFirst({
+    where: { tokenHash },
+    include: { user: true },
+  });
+  if (!record) {
+    return { error: 'INVALID_TOKEN', message: 'Enlace inválido o expirado.' };
+  }
+  if (record.usedAt) {
+    return { error: 'TOKEN_ALREADY_USED', message: 'Este enlace ya fue utilizado.' };
+  }
+  if (new Date() > record.expiresAt) {
+    return { error: 'TOKEN_EXPIRED', message: 'El enlace ha expirado.' };
+  }
+
+  const newEmailNorm = record.newEmail.toLowerCase();
+  const emailInUse = await prisma.user.findFirst({
+    where: { email: newEmailNorm, deletedAt: null, id: { not: record.userId } },
+  });
+  if (emailInUse) {
+    return { error: 'EMAIL_IN_USE', message: 'Ese correo ya está en uso.' };
+  }
+
+  await prisma.$transaction([
+    prisma.emailChangeToken.update({
+      where: { id: record.id },
+      data: { usedAt: new Date() },
+    }),
+    prisma.user.update({
+      where: { id: record.userId },
+      data: { email: newEmailNorm, emailVerifiedAt: new Date() },
+    }),
+    prisma.refreshToken.updateMany({
+      where: { userId: record.userId },
+      data: { revoked: true },
+    }),
+  ]);
+
+  log.info({ userId: record.userId, newEmail: newEmailNorm, operation: 'verifyNewEmail' }, 'Correo actualizado; sesiones revocadas');
+  return {
+    data: {
+      message: 'Correo actualizado correctamente. Cierra sesión e inicia sesión con tu nuevo correo.',
+      newEmail: newEmailNorm,
+    },
   };
 }
 
